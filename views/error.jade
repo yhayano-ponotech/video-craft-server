@@ -1,6 +1,11 @@
 extends layout
 
 block content
-  h1= message
-  h2= error.status
-  pre #{error.stack}
+  div.error-page
+    h1= message
+    h2= error.status
+    if error.stack && process.env.NODE_ENV === 'development'
+      pre #{error.stack}
+    
+    p
+      a(href='/') APIホームに戻る

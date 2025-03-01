@@ -1,5 +1,22 @@
 extends layout
 
 block content
-  h1= title
-  p Welcome to #{title}
+  div.container
+    h1.title #{title} v#{version}
+    p ようこそVideo Toolbox APIへ。以下のエンドポイントが利用可能です。
+    
+    div.endpoints
+      each endpoint in endpoints
+        div.endpoint
+          h3 
+            span.method #{endpoint.method}
+            span.path #{endpoint.path}
+          p #{endpoint.description}
+          if endpoint.params
+            p.params 
+              strong クエリパラメータ: 
+              code #{endpoint.params}
+          if endpoint.body
+            p.body 
+              strong リクエストボディ: 
+              code #{endpoint.body}
