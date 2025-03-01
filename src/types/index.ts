@@ -26,6 +26,7 @@ export interface VideoFormat {
   codecs: string;
   bitrate: number;
   size?: number;
+  url?: string; // YouTube APIから取得したストリーミングURL
 }
 
 // タスク共通のベース型
@@ -80,6 +81,8 @@ export interface EnvConfig {
   MAX_FILE_SIZE: number;
   FILE_RETENTION_HOURS: number;
   NODE_ENV: 'development' | 'production' | 'test';
+  YOUTUBE_API_KEY: string;
+  UNSAFE_DOWNLOAD: boolean;
 }
 
 // FrontendEndpointの型（APIドキュメント用）
@@ -89,4 +92,24 @@ export interface EndpointInfo {
   description: string;
   params?: string;
   body?: string;
+}
+
+// YouTube API からの応答データ型
+export interface YouTubeVideoDetails {
+  id: string;
+  snippet: {
+    title: string;
+    channelTitle: string;
+    thumbnails: {
+      default: { url: string, width: number, height: number };
+      medium: { url: string, width: number, height: number };
+      high: { url: string, width: number, height: number };
+      standard?: { url: string, width: number, height: number };
+      maxres?: { url: string, width: number, height: number };
+    };
+  };
+  contentDetails: {
+    duration: string; // ISO 8601 形式 (PT#M#S)
+    definition: string;
+  };
 }

@@ -73,9 +73,20 @@ router.get('/', [
     // MIMEタイプの取得
     const mimeType = mime.lookup(absolutePath) || 'application/octet-stream';
     
+    // RFC 6266に準拠したファイル名のエンコード
+    // ASCII文字以外を含む場合は、UTF-8でエンコードしてURLエンコード
+    let dispositionFileName;
+    if (/[^\x00-\x7F]/.test(sanitizedFileName)) {
+      // UTF-8でエンコードされたファイル名をURLエンコード
+      dispositionFileName = `filename*=UTF-8''${encodeURIComponent(sanitizedFileName)}`;
+    } else {
+      // ASCII文字のみの場合は通常のフォーマット
+      dispositionFileName = `filename="${sanitizedFileName}"`;
+    }
+    
     // ファイルをダウンロードとして送信
-    res.setHeader('Content-Type', mimeType as string);
-    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFileName}"`);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; ${dispositionFileName}`);
     res.setHeader('Content-Length', stat.size);
     
     // ファイルをストリームとして送信
