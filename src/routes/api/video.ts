@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { body, query, param, validationResult } from 'express-validator';
+import { body, param, validationResult } from 'express-validator';
 import multer from 'multer';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -65,55 +65,6 @@ const checkValidationErrors = (req: Request, res: Response, next: NextFunction) 
   }
   next();
 };
-
-/**
- * 動画情報の取得
- * GET /api/video/info
- */
-router.get('/info',
-  [
-    query('url')
-      .isURL()
-      .withMessage('有効なURLを入力してください')
-      .matches(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)/)
-      .withMessage('有効なYouTube URLを入力してください')
-  ],
-  checkValidationErrors,
-  videoController.getVideoInfo
-);
-
-/**
- * 動画ダウンロードの開始
- * POST /api/video/download
- */
-router.post('/download',
-  [
-    body('url')
-      .isURL()
-      .withMessage('有効なURLを入力してください')
-      .matches(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)/)
-      .withMessage('有効なYouTube URLを入力してください'),
-    body('itag')
-      .isInt({ min: 1 })
-      .withMessage('有効なitagを指定してください')
-  ],
-  checkValidationErrors,
-  videoController.startDownload
-);
-
-/**
- * ダウンロード状態の取得
- * GET /api/video/download/:id
- */
-router.get('/download/:id',
-  [
-    param('id')
-      .isUUID(4)
-      .withMessage('有効なダウンロードIDを指定してください')
-  ],
-  checkValidationErrors,
-  videoController.getDownloadStatus
-);
 
 /**
  * 動画変換の開始

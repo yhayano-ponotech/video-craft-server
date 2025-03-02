@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import ytdl from 'ytdl-core';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,9 +7,6 @@ import path from 'path';
 import sanitize from 'sanitize-filename';
 import { 
   MulterRequest, 
-  VideoInfo, 
-  VideoFormat, 
-  DownloadTask, 
   ConversionTask, 
   TrimTask, 
   ScreenshotTask
@@ -22,236 +18,12 @@ ffmpeg.setFfmpegPath(ffmpegPath as string);
 
 // ディレクトリパスの設定
 const TEMP_DIR = path.join(__dirname, '../../public/uploads/temp');
-const DOWNLOADS_DIR = path.join(__dirname, '../../public/uploads/downloads');
 const OUTPUTS_DIR = path.join(__dirname, '../../public/uploads/outputs');
 
 // ダウンロードURLの生成
 const getDownloadUrl = (filePath: string): string => {
   const relativePath = path.relative(path.join(__dirname, '../../public/uploads'), filePath);
   return relativePath.replace(/\\/g, '/'); // Windows対応
-};
-
-/**
- * YouTube動画情報を取得
- */
-export const getVideoInfo = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { url } = req.query as { url: string };
-    
-    // ytdl-coreを使用して動画情報を取得
-    const info = await ytdl.getInfo(url);
-    
-    // クライアントに必要な情報をフォーマット
-    const formats: VideoFormat[] = info.formats.map(format => {
-      // 動画と音声の両方があるフォーマットのみ抽出
-      return {
-        itag: format.itag,
-        quality: format.qualityLabel || 'Audio Only',
-        mimeType: format.mimeType || '',
-        container: format.container || 'mp4',
-        hasVideo: !!format.qualityLabel,
-        hasAudio: !!format.audioQuality,
-        codecs: format.codecs || '',
-        bitrate: format.bitrate || 0,
-        size: format.contentLength ? parseInt(format.contentLength) : undefined
-      };
-    });
-    
-    const videoInfo: VideoInfo = {
-      videoId: info.videoDetails.videoId,
-      title: info.videoDetails.title,
-      author: info.videoDetails.author.name,
-      thumbnailUrl: info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1].url,
-      duration: parseInt(info.videoDetails.lengthSeconds),
-      formats
-    };
-    
-    res.json({
-      success: true,
-      data: videoInfo
-    });
-  } catch (error) {
-    console.error('動画情報取得エラー:', error);
-    res.status(500).json({
-      success: false,
-      error: '動画情報の取得に失敗しました。URLが正しいか確認してください。'
-    });
-  }
-};
-
-/**
- * YouTube動画ダウンロードを開始
- */
-export const startDownload = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { url, itag } = req.body as { url: string; itag: number };
-    
-    // タスクIDを生成
-    const taskId = uuidv4();
-    
-    // 動画情報を取得
-    const info = await ytdl.getInfo(url);
-    
-    // 指定されたitagのフォーマットを取得
-    const format = info.formats.find(f => f.itag === parseInt(itag.toString()));
-    if (!format) {
-      res.status(400).json({
-        success: false,
-        error: '指定されたフォーマットが見つかりません。'
-      });
-      return;
-    }
-    
-    // ファイル名を作成（サニタイズして安全な名前にする）
-    let fileName = sanitize(info.videoDetails.title);
-    fileName = `${fileName}-${taskId}.${format.container || 'mp4'}`;
-    const outputPath = path.join(DOWNLOADS_DIR, fileName);
-    
-    // 初期タスク情報を設定
-    const task: DownloadTask = {
-      id: taskId,
-      url,
-      format: {
-        itag: format.itag,
-        quality: format.qualityLabel || 'Audio Only',
-        mimeType: format.mimeType || '',
-        container: format.container || 'mp4',
-        hasVideo: !!format.qualityLabel,
-        hasAudio: !!format.audioQuality,
-        codecs: format.codecs || '',
-        bitrate: format.bitrate || 0,
-        size: format.contentLength ? parseInt(format.contentLength) : undefined
-      },
-      progress: 0,
-      status: 'pending',
-      created: new Date(),
-      outputPath: getDownloadUrl(outputPath)
-    };
-    
-    // タスク管理サービスにタスクを追加
-    setTask<DownloadTask>(`download:${taskId}`, task);
-    
-    // タスク情報をクライアントに返す
-    res.json({
-      success: true,
-      data: task
-    });
-    
-    // バックグラウンドでダウンロードを実行
-    downloadVideo(url, itag, outputPath, taskId);
-  } catch (error) {
-    console.error('ダウンロード開始エラー:', error);
-    res.status(500).json({
-      success: false,
-      error: 'ダウンロードの開始に失敗しました。'
-    });
-  }
-};
-
-/**
- * 動画ダウンロード処理（バックグラウンド実行）
- */
-const downloadVideo = async (url: string, itag: number, outputPath: string, taskId: string): Promise<void> => {
-  try {
-    // タスク情報を更新
-    updateTask<DownloadTask>(`download:${taskId}`, {
-      status: 'downloading',
-      progress: 0
-    });
-    
-    // ダウンロードストリームを作成
-    const stream = ytdl(url, {
-      quality: itag
-    });
-    
-    // 進捗状況を追跡
-    let downloadedBytes = 0;
-    let totalBytes = 0;
-    
-    stream.on('response', (res) => {
-      totalBytes = parseInt(res.headers['content-length'] || '0');
-    });
-    
-    stream.on('progress', (chunkLength: number, downloaded: number, total: number) => {
-      downloadedBytes = downloaded;
-      
-      if (total > 0) {
-        const progress = Math.floor((downloaded / total) * 100);
-        
-        // 進捗状況を更新
-        updateTask<DownloadTask>(`download:${taskId}`, {
-          progress
-        });
-      }
-    });
-    
-    // 出力ファイルにストリーム
-    const writer = fs.createWriteStream(outputPath);
-    
-    stream.pipe(writer);
-    
-    // 完了時の処理
-    writer.on('finish', () => {
-      updateTask<DownloadTask>(`download:${taskId}`, {
-        status: 'completed',
-        progress: 100
-      });
-    });
-    
-    // エラー時の処理
-    writer.on('error', (err) => {
-      console.error('ダウンロード書き込みエラー:', err);
-      updateTask<DownloadTask>(`download:${taskId}`, {
-        status: 'error',
-        error: 'ファイルの書き込み中にエラーが発生しました。'
-      });
-    });
-    
-    stream.on('error', (err) => {
-      console.error('ダウンロードエラー:', err);
-      updateTask<DownloadTask>(`download:${taskId}`, {
-        status: 'error',
-        error: 'ダウンロード中にエラーが発生しました。'
-      });
-    });
-  } catch (error) {
-    console.error('ダウンロード処理エラー:', error);
-    updateTask<DownloadTask>(`download:${taskId}`, {
-      status: 'error',
-      error: 'ダウンロード処理中にエラーが発生しました。'
-    });
-  }
-};
-
-/**
- * ダウンロード状態を取得
- */
-export const getDownloadStatus = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    
-    // タスク管理サービスからタスク情報を取得
-    const task = getTask<DownloadTask>(`download:${id}`);
-    
-    if (!task) {
-      res.status(404).json({
-        success: false,
-        error: '指定されたダウンロードタスクが見つかりません。'
-      });
-      return;
-    }
-    
-    res.json({
-      success: true,
-      data: task
-    });
-  } catch (error) {
-    console.error('ダウンロード状態取得エラー:', error);
-    res.status(500).json({
-      success: false,
-      error: 'ダウンロード状態の取得に失敗しました。'
-    });
-  }
 };
 
 /**
@@ -359,24 +131,11 @@ const convertVideo = async (inputPath: string, outputPath: string, outputFormat:
           audioCodec: 'libvorbis'
         };
         break;
-      case 'mkv':
-        conversionOptions = {
-          format: 'matroska',
-          videoCodec: 'libx264',
-          audioCodec: 'aac'
-        };
-        break;
       case 'gif':
         conversionOptions = {
           format: 'gif'
         };
         break;
-      default:
-        conversionOptions = {
-          format: 'mp4',
-          videoCodec: 'libx264',
-          audioCodec: 'aac'
-        };
     }
     
     // FFmpegを使用して変換
@@ -561,8 +320,6 @@ const trimVideo = async (inputPath: string, outputPath: string, startTime: numbe
       case 'gif':
         outputOptions = ['-vf', 'fps=10,scale=320:-1:flags=lanczos'];
         break;
-      default:
-        outputOptions = ['-c:v', 'libx264', '-c:a', 'aac'];
     }
     
     // FFmpegを使用してトリミング
@@ -734,8 +491,6 @@ const takeVideoScreenshot = async (inputPath: string, outputPath: string, timest
       case 'high':
         qualityOptions = format === 'jpg' ? ['-q:v', '2'] : ['-q:v', '9'];
         break;
-      default:
-        qualityOptions = format === 'jpg' ? ['-q:v', '5'] : ['-q:v', '5'];
     }
     
     // FFmpegを使用してスクリーンショットを取得
