@@ -37,6 +37,14 @@ export interface ScreenshotTask extends BaseTask {
   quality: 'low' | 'medium' | 'high';
 }
 
+// 圧縮タスクの型定義
+export interface CompressTask extends BaseTask {
+  inputFile: string;
+  compressionLevel: 'light' | 'medium' | 'high';
+  resolution: 'original' | '1080p' | '720p' | '480p';
+  outputSize?: number; // 圧縮後のファイルサイズ（バイト）
+}
+
 // APIレスポンスの型定義
 export interface ApiResponse<T> {
   success: boolean;

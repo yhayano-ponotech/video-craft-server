@@ -169,4 +169,36 @@ router.get('/screenshot/:id',
   videoController.getScreenshotStatus
 );
 
+/**
+ * 動画圧縮の開始
+ * POST /api/video/compress
+ */
+router.post('/compress',
+  upload.single('file'),
+  [
+    body('compressionLevel')
+      .isIn(['light', 'medium', 'high'])
+      .withMessage('有効な圧縮レベルを指定してください（light, medium, high）'),
+    body('resolution')
+      .isIn(['original', '1080p', '720p', '480p'])
+      .withMessage('有効な解像度を指定してください（original, 1080p, 720p, 480p）')
+  ],
+  checkValidationErrors,
+  videoController.startCompression
+);
+
+/**
+ * 圧縮状態の取得
+ * GET /api/video/compress/:id
+ */
+router.get('/compress/:id',
+  [
+    param('id')
+      .isUUID(4)
+      .withMessage('有効な圧縮IDを指定してください')
+  ],
+  checkValidationErrors,
+  videoController.getCompressionStatus
+);
+
 export default router;

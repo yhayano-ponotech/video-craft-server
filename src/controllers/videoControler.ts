@@ -9,7 +9,8 @@ import {
   MulterRequest, 
   ConversionTask, 
   TrimTask, 
-  ScreenshotTask
+  ScreenshotTask,
+  CompressTask,
 } from '../types';
 import { setTask, getTask, updateTask } from '../services/taskManager';
 
@@ -573,6 +574,254 @@ export const getScreenshotStatus = async (req: Request, res: Response): Promise<
     res.status(500).json({
       success: false,
       error: 'スクリーンショット状態の取得に失敗しました。'
+    });
+  }
+};
+
+/**
+ * 動画圧縮を開始
+ */
+export const startCompression = async (req: MulterRequest, res: Response): Promise<void> => {
+  try {
+    // ファイルがアップロードされていることを確認
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        error: 'ファイルがアップロードされていません。'
+      });
+      return;
+    }
+    
+    const { compressionLevel, resolution } = req.body as { 
+      compressionLevel: 'light' | 'medium' | 'high',
+      resolution: 'original' | '1080p' | '720p' | '480p'
+    };
+    const inputFile = req.file.path;
+    
+    // タスクIDを生成
+    const taskId = uuidv4();
+    
+    // 出力ファイル名を作成
+    const outputFileName = `compressed-${path.basename(inputFile, path.extname(inputFile))}.mp4`;
+    const outputPath = path.join(OUTPUTS_DIR, outputFileName);
+    
+    // 初期タスク情報を設定
+    const task: CompressTask = {
+      id: taskId,
+      inputFile,
+      compressionLevel,
+      resolution,
+      progress: 0,
+      status: 'pending',
+      created: new Date(),
+      outputPath: getDownloadUrl(outputPath)
+    };
+    
+    // タスク管理サービスにタスクを追加
+    setTask<CompressTask>(`compress:${taskId}`, task);
+    
+    // タスク情報をクライアントに返す
+    res.json({
+      success: true,
+      data: task
+    });
+    
+    // バックグラウンドで圧縮を実行
+    compressVideo(inputFile, outputPath, compressionLevel, resolution, taskId);
+  } catch (error) {
+    console.error('圧縮開始エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: '圧縮の開始に失敗しました。'
+    });
+  }
+};
+
+/**
+ * 動画圧縮処理（バックグラウンド実行）
+ */
+const compressVideo = async (
+  inputPath: string, 
+  outputPath: string, 
+  compressionLevel: 'light' | 'medium' | 'high', 
+  resolution: 'original' | '1080p' | '720p' | '480p', 
+  taskId: string
+): Promise<void> => {
+  try {
+    // タスク情報を更新
+    updateTask<CompressTask>(`compress:${taskId}`, {
+      status: 'processing',
+      progress: 0
+    });
+    
+    // 圧縮レベルに応じたFFmpegの設定
+    let videoBitrate: string;
+    let audioBitrate: string;
+    let preset: string;
+    
+    switch (compressionLevel) {
+      case 'light':
+        // 軽度圧縮 - 高品質
+        videoBitrate = '5000k';
+        audioBitrate = '192k';
+        preset = 'medium'; // バランスの取れた圧縮
+        break;
+      case 'medium':
+        // 中程度圧縮 - バランス型
+        videoBitrate = '2500k';
+        audioBitrate = '128k';
+        preset = 'medium';
+        break;
+      case 'high':
+        // 高度圧縮 - 最大圧縮
+        videoBitrate = '1000k';
+        audioBitrate = '96k';
+        preset = 'veryslow'; // より高い圧縮率
+        break;
+      default:
+        // デフォルト
+        videoBitrate = '2500k';
+        audioBitrate = '128k';
+        preset = 'medium';
+    }
+    
+    // 解像度に応じた設定
+    let videoFilters: string[] = [];
+    
+    switch (resolution) {
+      case '1080p':
+        videoFilters.push('scale=-1:1080'); // 幅を自動計算して高さを1080に設定
+        break;
+      case '720p':
+        videoFilters.push('scale=-1:720'); // 幅を自動計算して高さを720に設定
+        break;
+      case '480p':
+        videoFilters.push('scale=-1:480'); // 幅を自動計算して高さを480に設定
+        break;
+      case 'original':
+      default:
+        // オリジナル解像度を維持
+        break;
+    }
+    
+    // 動画のノイズ除去フィルターを適用（品質向上と圧縮効率の改善）
+    if (compressionLevel === 'medium' || compressionLevel === 'high') {
+      videoFilters.push('hqdn3d=4:3:6:4'); // ノイズ除去フィルター
+    }
+    
+    // FFmpeg圧縮コマンドの構築
+    let command = ffmpeg(inputPath)
+      .format('mp4')
+      .videoCodec('libx264')
+      .audioBitrate(audioBitrate)
+      .videoBitrate(videoBitrate)
+      .audioCodec('aac')
+      .outputOptions([
+        `-preset ${preset}`,
+        '-movflags +faststart', // Web再生の最適化
+        '-profile:v high', // 高品質プロファイル
+        '-level 4.0',
+        '-crf 22', // 固定品質係数（18〜28が一般的、値が低いほど高品質）
+      ]);
+    
+    // ビデオフィルターがある場合は適用
+    if (videoFilters.length > 0) {
+      command = command.videoFilters(videoFilters);
+    }
+    
+    // プログレスとイベントの設定
+    command.on('progress', (progress: { percent?: number }) => {
+      // 進捗情報を更新
+      if (progress.percent !== undefined) {
+        const percent = Math.min(100, Math.floor(progress.percent));
+        updateTask<CompressTask>(`compress:${taskId}`, {
+          progress: percent
+        });
+      }
+    })
+    .on('end', () => {
+      // 圧縮完了
+      // 圧縮後のファイルサイズを取得
+      try {
+        const stats = fs.statSync(outputPath);
+        const outputSize = stats.size;
+        
+        updateTask<CompressTask>(`compress:${taskId}`, {
+          status: 'completed',
+          progress: 100,
+          outputSize
+        });
+      } catch (err) {
+        console.error('ファイルサイズ取得エラー:', err);
+        updateTask<CompressTask>(`compress:${taskId}`, {
+          status: 'completed',
+          progress: 100
+        });
+      }
+      
+      // 一時ファイルを削除
+      if (fs.existsSync(inputPath)) {
+        fs.unlinkSync(inputPath);
+      }
+    })
+    .on('error', (err: Error) => {
+      console.error('圧縮エラー:', err);
+      updateTask<CompressTask>(`compress:${taskId}`, {
+        status: 'error',
+        error: '圧縮中にエラーが発生しました。'
+      });
+      
+      // エラー時も一時ファイルを削除
+      if (fs.existsSync(inputPath)) {
+        fs.unlinkSync(inputPath);
+      }
+    })
+    .save(outputPath);
+  } catch (error) {
+    console.error('圧縮処理エラー:', error);
+    updateTask<CompressTask>(`compress:${taskId}`, {
+      status: 'error',
+      error: '圧縮処理中にエラーが発生しました。'
+    });
+    
+    // エラー時も一時ファイルを削除
+    if (fs.existsSync(inputPath)) {
+      try {
+        fs.unlinkSync(inputPath);
+      } catch (e) {
+        console.error('一時ファイル削除エラー:', e);
+      }
+    }
+  }
+};
+
+/**
+ * 圧縮状態を取得
+ */
+export const getCompressionStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    
+    // タスク管理サービスからタスク情報を取得
+    const task = getTask<CompressTask>(`compress:${id}`);
+    
+    if (!task) {
+      res.status(404).json({
+        success: false,
+        error: '指定された圧縮タスクが見つかりません。'
+      });
+      return;
+    }
+    
+    res.json({
+      success: true,
+      data: task
+    });
+  } catch (error) {
+    console.error('圧縮状態取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: '圧縮状態の取得に失敗しました。'
     });
   }
 };
