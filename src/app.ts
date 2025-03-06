@@ -47,7 +47,8 @@ app.use(helmet({
 app.use(cors({
   origin: config.CORS_ORIGIN,
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // ルートの設定

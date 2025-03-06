@@ -1,3 +1,4 @@
+// src/routes/api/download.ts
 import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -35,9 +36,16 @@ router.get('/', [
     // リクエストされたファイルパスを取得
     const filePath = path.normalize(req.query.path as string);
     
+    // デバッグ情報
+    console.log('Requested file path:', filePath);
+    
     // 許可されたディレクトリを確認（セキュリティ対策）
     const uploadsDir = path.join(__dirname, '../../../public/uploads');
     const absolutePath = path.join(uploadsDir, filePath);
+    
+    // デバッグ情報
+    console.log('Absolute path:', absolutePath);
+    console.log('File exists:', fs.existsSync(absolutePath));
     
     // パスがuploadsディレクトリ内にあるか確認
     if (!absolutePath.startsWith(uploadsDir)) {
@@ -77,6 +85,11 @@ router.get('/', [
     res.setHeader('Content-Type', mimeType as string);
     res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFileName}"`);
     res.setHeader('Content-Length', stat.size);
+    
+    // CORSヘッダーを追加（画像表示用）
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
     // ファイルをストリームとして送信
     const fileStream = fs.createReadStream(absolutePath);
