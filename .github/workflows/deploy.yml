@@ -10,7 +10,7 @@ on:
       - "tsconfig.json"
       - "fly.toml"
       - "Dockerfile"
-      - ".github/workflows/backend-deploy.yml"
+      - ".github/workflows/deploy.yml"
 
   # マニュアルでワークフローを実行できるようにする
   workflow_dispatch:
