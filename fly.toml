@@ -36,3 +36,6 @@ primary_region = 'nrt'
 [env]
   PORT = "8080"
   NODE_ENV = "production"
+  CORS_ORIGIN = "https://video-toolbox.ponotech.net"
+  MAX_FILE_SIZE = "524288000"
+  FILE_RETENTION_HOURS = "24"
