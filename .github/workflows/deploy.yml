@@ -1,0 +1,72 @@
+name: Deploy Backend to Fly.io
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "package.json"
+      - "tsconfig.json"
+      - "fly.toml"
+      - "Dockerfile"
+      - ".github/workflows/backend-deploy.yml"
+
+  # マニュアルでワークフローを実行できるようにする
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # ビルドテスト - TypeScriptをJavaScriptにコンパイル
+      - name: Build application
+        run: npm run build
+
+      # Fly.ioのCLIをインストール
+      - name: Install Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Fly.ioにデプロイする
+      - name: Deploy to Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            # 本番環境へのデプロイ
+            flyctl deploy --remote-only
+          else
+            # ステージング環境へのデプロイ
+            # 必要に応じて環境変数やデプロイ先を変更
+            flyctl deploy --remote-only -a video-craft-server-staging
+          fi
+
+      - name: Comment on PR with deployment status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { issue: { number: issue_number }, repo: { owner, repo } } = context;
+            github.rest.issues.createComment({
+              issue_number,
+              owner,
+              repo,
+              body: 'バックエンドが正常にデプロイされました！ 🚀'
+            });
