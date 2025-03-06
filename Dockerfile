@@ -29,9 +29,22 @@ RUN npm ci --only=production
 
 # ビルド済みのアプリケーションをコピー
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/views ./views
+COPY --from=builder /app/public ./public
 
-# アプリケーションの起動
-CMD [ "node", "dist/bin/www.js" ]
+# 必要なディレクトリを作成
+RUN mkdir -p public/uploads/temp public/uploads/downloads public/uploads/outputs
+RUN chmod -R 777 public/uploads
+
+# 環境変数の設定
+ENV PORT=8080
+ENV NODE_ENV=production
+
+# デバッグ用：起動時にディレクトリ内容とポートリスニング状態を表示
+CMD echo "Directory listing:" && ls -la && \
+    echo "Public directory:" && ls -la public && \
+    echo "Starting application on port $PORT" && \
+    node dist/bin/www.js
 
 # 使用するポートを指定
 EXPOSE 8080
